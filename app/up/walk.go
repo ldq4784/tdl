@@ -36,9 +36,13 @@ func walk(paths, includes, excludes []string) ([]*File, error) {
 			}
 
 			f := File{File: path}
-			t := strings.TrimRight(path, filepath.Ext(path)) + consts.UploadThumbExt
-			if fsutil.PathExists(t) {
-				f.Thumb = t
+			baseWithoutExt := strings.TrimSuffix(path, filepath.Ext(path))
+			for _, thumbExt := range []string{consts.UploadThumbExt, ".jpg", ".jpeg", ".png"} {
+				t := baseWithoutExt + thumbExt
+				if fsutil.PathExists(t) {
+					f.Thumb = t
+					break
+				}
 			}
 
 			files = append(files, &f)

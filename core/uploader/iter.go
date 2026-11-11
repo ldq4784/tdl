@@ -27,3 +27,12 @@ type Elem interface {
 	Thread() int
 	AsPhoto() bool
 }
+
+type GroupElem interface {
+	Elem
+	Elems() []Elem
+}
+
+type VideoMetaProvider interface {
+	VideoMeta() (w int, h int, duration float64, ok bool)
+}

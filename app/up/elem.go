@@ -18,8 +18,20 @@ type iterElem struct {
 	caption *entity.Builder
 	thread  int
 
-	asPhoto bool
-	remove  bool
+	asPhoto     bool
+	remove      bool
+	isTempThumb bool
+
+	videoW   int
+	videoH   int
+	videoDur float64
+}
+
+func (e *iterElem) VideoMeta() (int, int, float64, bool) {
+	if e.videoW > 0 && e.videoH > 0 {
+		return e.videoW, e.videoH, e.videoDur, true
+	}
+	return 0, 0, 0, false
 }
 
 func (e *iterElem) File() uploader.File {
@@ -60,4 +72,50 @@ func (u *uploaderFile) Name() string {
 
 func (u *uploaderFile) Size() int64 {
 	return u.size
+}
+
+type groupElem struct {
+	elems  []uploader.Elem
+	to     tg.InputPeerClass
+	thread int
+}
+
+func (g *groupElem) Elems() []uploader.Elem {
+	return g.elems
+}
+
+func (g *groupElem) To() tg.InputPeerClass {
+	return g.to
+}
+
+func (g *groupElem) Thread() int {
+	return g.thread
+}
+
+func (g *groupElem) File() uploader.File {
+	if len(g.elems) > 0 {
+		return g.elems[0].File()
+	}
+	return nil
+}
+
+func (g *groupElem) Thumb() (uploader.File, bool) {
+	if len(g.elems) > 0 {
+		return g.elems[0].Thumb()
+	}
+	return nil, false
+}
+
+func (g *groupElem) Caption() (string, []tg.MessageEntityClass) {
+	if len(g.elems) > 0 {
+		return g.elems[0].Caption()
+	}
+	return "", nil
+}
+
+func (g *groupElem) AsPhoto() bool {
+	if len(g.elems) > 0 {
+		return g.elems[0].AsPhoto()
+	}
+	return false
 }

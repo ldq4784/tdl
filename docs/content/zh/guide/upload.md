@@ -179,3 +179,23 @@ tdl up -p /path/to/file --rm
 {{< command >}}
 tdl up -p /path/to/file --photo
 {{< /command >}}
+
+## 成组/相册上传
+
+将多个媒体文件作为相册（Album/媒体组）合并发送到指定聊天（Telegram 单组上限 10 个文件）：
+
+{{< command >}}
+tdl up -p /path/to/dir -c CHAT --album
+{{< /command >}}
+
+同时可以指定 `--photo` 将图片按照片格式合并（可与视频混排为相册）：
+
+{{< command >}}
+tdl up -p /path/to/dir -c CHAT --album --photo
+{{< /command >}}
+
+自定义每组文件数量（1-10，默认 10）：
+
+{{< command >}}
+tdl up -p /path/to/dir -c CHAT --album --group-size 5
+{{< /command >}}

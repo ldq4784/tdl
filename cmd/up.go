@@ -14,6 +14,7 @@ import (
 
 func NewUpload() *cobra.Command {
 	var opts up.Options
+	var album bool
 
 	cmd := &cobra.Command{
 		Use:     "upload",
@@ -27,6 +28,12 @@ func NewUpload() *cobra.Command {
 				}
 				if opts.Chat != "" && opts.To != "" {
 					return errors.New("conflicting flags: --chat and --to cannot be set at the same time")
+				}
+				if album {
+					opts.Group = true
+				}
+				if opts.GroupSize <= 0 || opts.GroupSize > 10 {
+					opts.GroupSize = 10
 				}
 				return up.Run(logctx.Named(ctx, "up"), c, kvd, opts)
 			})
@@ -47,6 +54,9 @@ func NewUpload() *cobra.Command {
 	cmd.Flags().StringSliceVarP(&opts.Excludes, exclude, "e", []string{}, "exclude the specified file extensions")
 	cmd.Flags().BoolVar(&opts.Remove, "rm", false, "remove the uploaded files after uploading")
 	cmd.Flags().BoolVar(&opts.Photo, "photo", false, "upload the image as a photo instead of a file")
+	cmd.Flags().BoolVar(&opts.Group, "group", false, "upload media files as a group/album (max 10 per group)")
+	cmd.Flags().BoolVar(&album, "album", false, "upload media files as an album (alias for --group)")
+	cmd.Flags().IntVar(&opts.GroupSize, "group-size", 10, "maximum number of media files per group/album (1-10)")
 	cmd.Flags().StringVar(&opts.Caption, "caption", `"<code>"+FileName+"</code> - <code>"+MIME+"</code>"`, "caption for the uploaded media")
 
 	// completion and validation

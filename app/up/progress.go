@@ -53,7 +53,10 @@ func (p *progress) OnDone(elem uploader.Elem, err error) {
 		return
 	}
 	t := tracker.(*pw.Tracker)
-	e := elem.(*iterElem)
+	e, ok := elem.(*iterElem)
+	if !ok {
+		return
+	}
 
 	if err := p.closeFile(e); err != nil {
 		p.fail(t, elem, errors.Wrap(err, "close file"))
@@ -79,8 +82,12 @@ func (p *progress) closeFile(e *iterElem) error {
 	}
 
 	if e.thumb != nil {
+		thumbPath := e.thumb.File.Name()
 		if err := e.thumb.Close(); err != nil {
 			return errors.Wrap(err, "close thumb")
+		}
+		if e.isTempThumb {
+			_ = os.Remove(thumbPath)
 		}
 	}
 
@@ -93,7 +100,10 @@ func (p *progress) fail(t *pw.Tracker, elem uploader.Elem, err error) {
 }
 
 func (p *progress) tuple(elem uploader.Elem) tuple {
-	return tuple{elem.(*iterElem).file.File.Name(), elem.(*iterElem).to.ID()}
+	if e, ok := elem.(*iterElem); ok {
+		return tuple{e.file.File.Name(), e.to.ID()}
+	}
+	return tuple{}
 }
 
 func (p *progress) processMessage(elem uploader.Elem) string {
@@ -101,6 +111,8 @@ func (p *progress) processMessage(elem uploader.Elem) string {
 }
 
 func (p *progress) elemString(elem uploader.Elem) string {
-	e := elem.(*iterElem)
-	return fmt.Sprintf("%s -> %s(%d)", e.file.File.Name(), e.to.VisibleName(), e.to.ID())
+	if e, ok := elem.(*iterElem); ok {
+		return fmt.Sprintf("%s -> %s(%d)", e.file.File.Name(), e.to.VisibleName(), e.to.ID())
+	}
+	return "unknown"
 }

@@ -3,16 +3,20 @@ package up
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/expr-lang/expr/vm"
+	"github.com/fatih/color"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/go-faster/errors"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/gotd/td/telegram/message/entity"
 	"github.com/gotd/td/telegram/message/html"
 	"github.com/gotd/td/telegram/peers"
+	"github.com/gotd/td/tg"
 
 	"github.com/iyear/tdl/core/uploader"
 	"github.com/iyear/tdl/core/util/mediautil"
@@ -31,36 +35,44 @@ type dest struct {
 }
 
 type iter struct {
-	files   []*File
-	to      *vm.Program
-	caption *vm.Program
-	chat    string
-	topic   int
-	photo   bool
-	remove  bool
-	delay   time.Duration
-	manager *peers.Manager
+	files     []*File
+	to        *vm.Program
+	caption   *vm.Program
+	chat      string
+	topic     int
+	photo     bool
+	remove    bool
+	group     bool
+	groupSize int
+	delay     time.Duration
+	manager   *peers.Manager
 
-	cur  int
-	err  error
-	file uploader.Elem
+	cur     int
+	pending *iterElem
+	started bool
+	err     error
+	file    uploader.Elem
 }
 
-func newIter(files []*File, to, caption *vm.Program, chat string, topic int, photo, remove bool, delay time.Duration, manager *peers.Manager) *iter {
+func newIter(files []*File, to, caption *vm.Program, chat string, topic int, photo, remove, group bool, groupSize int, delay time.Duration, manager *peers.Manager) *iter {
 	return &iter{
-		files:   files,
-		to:      to,
-		caption: caption,
-		chat:    chat,
-		topic:   topic,
-		photo:   photo,
-		remove:  remove,
-		delay:   delay,
-		manager: manager,
+		files:     files,
+		to:        to,
+		caption:   caption,
+		chat:      chat,
+		topic:     topic,
+		photo:     photo,
+		remove:    remove,
+		group:     group,
+		groupSize: groupSize,
+		delay:     delay,
+		manager:   manager,
 
-		cur:  0,
-		err:  nil,
-		file: nil,
+		cur:     0,
+		pending: nil,
+		started: false,
+		err:     nil,
+		file:    nil,
 	}
 }
 
@@ -72,13 +84,27 @@ func (i *iter) Next(ctx context.Context) bool {
 	default:
 	}
 
-	if i.cur >= len(i.files) || i.err != nil {
+	if (i.cur >= len(i.files) && i.pending == nil) || i.err != nil {
 		return false
 	}
 
 	// if delay is set, sleep for a while for each iteration
-	if i.delay > 0 && i.cur > 0 { // skip first delay
+	if i.delay > 0 && i.started { // skip first delay
 		time.Sleep(i.delay)
+	}
+	i.started = true
+
+	if i.group {
+		file, err := i.nextGroup(ctx)
+		if err != nil {
+			i.err = err
+			return false
+		}
+		if file == nil {
+			return false
+		}
+		i.file = file
+		return true
 	}
 
 	cur := i.files[i.cur]
@@ -92,6 +118,62 @@ func (i *iter) Next(ctx context.Context) bool {
 
 	i.file = file
 	return true
+}
+
+func (i *iter) nextGroup(ctx context.Context) (uploader.Elem, error) {
+	if i.cur >= len(i.files) && i.pending == nil {
+		return nil, nil
+	}
+
+	limit := i.groupSize
+	if limit <= 0 || limit > 10 {
+		limit = 10
+	}
+
+	var groupElems []uploader.Elem
+	var firstTo tg.InputPeerClass
+	var firstThread int
+
+	for len(groupElems) < limit {
+		var elem *iterElem
+		var err error
+
+		if i.pending != nil {
+			elem = i.pending
+			i.pending = nil
+		} else if i.cur < len(i.files) {
+			cur := i.files[i.cur]
+			i.cur++
+			elem, err = i.next(ctx, cur)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			break
+		}
+
+		if len(groupElems) == 0 {
+			firstTo = elem.To()
+			firstThread = elem.Thread()
+			groupElems = append(groupElems, elem)
+		} else {
+			if !reflect.DeepEqual(firstTo, elem.To()) || firstThread != elem.Thread() {
+				i.pending = elem
+				break
+			}
+			groupElems = append(groupElems, elem)
+		}
+	}
+
+	if len(groupElems) == 0 {
+		return nil, nil
+	}
+
+	return &groupElem{
+		elems:  groupElems,
+		to:     firstTo,
+		thread: firstThread,
+	}, nil
 }
 
 func (i *iter) next(ctx context.Context, cur *File) (*iterElem, error) {
@@ -112,20 +194,50 @@ func (i *iter) next(ctx context.Context, cur *File) (*iterElem, error) {
 		return nil, errors.Wrap(err, "resolve caption")
 	}
 
-	thumb, err := i.resolveThumb(cur.Thumb)
+	var isTempThumb bool
+	thumbPath := cur.Thumb
+	var videoW, videoH int
+	var videoDur float64
+
+	if mediautil.IsVideo(env.MIME) {
+		if meta, err := mediautil.ProbeVideo(cur.File); err == nil {
+			videoW = meta.W
+			videoH = meta.H
+			videoDur = meta.Duration
+		}
+
+		if thumbPath == "" {
+			color.Cyan("[%s] Extracting video thumbnail with ffmpeg...", filepath.Base(cur.File))
+			if t, err := mediautil.ExtractThumbnail(cur.File); err == nil && t != "" {
+				thumbPath = t
+				isTempThumb = true
+				color.Green("[%s] Video thumbnail generated successfully", filepath.Base(cur.File))
+			} else if err != nil {
+				color.Yellow("[%s] Video thumbnail extraction failed: %v", filepath.Base(cur.File), err)
+			}
+		}
+	}
+
+	thumb, err := i.resolveThumb(thumbPath)
 	if err != nil {
+		if isTempThumb {
+			_ = os.Remove(thumbPath)
+		}
 		return nil, errors.Wrap(err, "resolve thumbnail")
 	}
 
 	return &iterElem{
-		file:    file,
-		thumb:   thumb,
-		to:      to,
-		caption: caption,
-		thread:  thread,
-
-		asPhoto: i.photo,
-		remove:  i.remove,
+		file:        file,
+		thumb:       thumb,
+		to:          to,
+		caption:     caption,
+		thread:      thread,
+		asPhoto:     i.photo,
+		remove:      i.remove,
+		isTempThumb: isTempThumb,
+		videoW:      videoW,
+		videoH:      videoH,
+		videoDur:    videoDur,
 	}, nil
 }
 

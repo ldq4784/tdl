@@ -179,3 +179,23 @@ Upload images as photos instead of documents:
 {{< command >}}
 tdl up -p /path/to/file --photo
 {{< /command >}}
+
+## Album / Grouped Upload
+
+Upload multiple media files as grouped album to the specified chat (Telegram limits max 10 media per album):
+
+{{< command >}}
+tdl up -p /path/to/dir -c CHAT --album
+{{< /command >}}
+
+Combine with `--photo` to upload photos instead of files (photos and videos can be grouped together):
+
+{{< command >}}
+tdl up -p /path/to/dir -c CHAT --album --photo
+{{< /command >}}
+
+Customize the group size (1-10, default 10):
+
+{{< command >}}
+tdl up -p /path/to/dir -c CHAT --album --group-size 5
+{{< /command >}}

@@ -32,15 +32,17 @@ import (
 )
 
 type Options struct {
-	Chat     string
-	Thread   int
-	To       string
-	Paths    []string
-	Includes []string
-	Excludes []string
-	Remove   bool
-	Photo    bool
-	Caption  string
+	Chat      string
+	Thread    int
+	To        string
+	Paths     []string
+	Includes  []string
+	Excludes  []string
+	Remove    bool
+	Photo     bool
+	Caption   string
+	Group     bool
+	GroupSize int
 }
 
 type Env struct {
@@ -97,7 +99,7 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 	options := uploader.Options{
 		Client:   pool.Default(ctx),
 		Threads:  viper.GetInt(consts.FlagThreads),
-		Iter:     newIter(files, to, caption, opts.Chat, opts.Thread, opts.Photo, opts.Remove, viper.GetDuration(consts.FlagDelay), manager),
+		Iter:     newIter(files, to, caption, opts.Chat, opts.Thread, opts.Photo, opts.Remove, opts.Group, opts.GroupSize, viper.GetDuration(consts.FlagDelay), manager),
 		Progress: newProgress(upProgress),
 	}
 
